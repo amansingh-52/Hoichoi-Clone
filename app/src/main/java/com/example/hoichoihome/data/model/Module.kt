@@ -10,4 +10,6 @@ data class Module(
     val schedulingMap: SchedulingMap?,
     val settings: Settings?,
     val title: String?
-)
+) {
+
+}

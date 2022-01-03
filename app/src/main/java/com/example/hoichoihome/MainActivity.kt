@@ -2,9 +2,8 @@ package com.example.hoichoihome
 
 import android.os.Bundle
 
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -31,80 +30,139 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModelProviders
+import androidx.lifecycle.lifecycleScope
 import coil.annotation.ExperimentalCoilApi
 import coil.compose.ImagePainter
 import coil.compose.rememberImagePainter
+import com.example.hoichoihome.data.api.ApiHelperImpl
+import com.example.hoichoihome.data.api.RetrofitBuilder
 import com.example.hoichoihome.data.model.HomePageResponse
 import com.example.hoichoihome.data.model.Module
+import com.example.hoichoihome.ui.main.intent.MainIntent
+import com.example.hoichoihome.ui.main.viewmodel.MainViewModel
+import com.example.hoichoihome.ui.main.viewstate.ViewState
 import com.example.hoichoihome.ui.theme.HoichoiHomeTheme
-import com.example.hoichoihome.viewModel.HomeViewModel
+import com.example.hoichoihome.utils.ViewModelFactory
 import com.google.accompanist.pager.ExperimentalPagerApi
 import com.google.accompanist.pager.HorizontalPager
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
+private lateinit var mainViewModel: MainViewModel
 
-class MainActivity : ComponentActivity() {
+private val isLoaded = MutableLiveData<Boolean>()
+private lateinit var data: HomePageResponse
 
+class MainActivity : AppCompatActivity() {
 
-    private val viewModel: HomeViewModel by viewModels()
 
     @ExperimentalCoilApi
     @ExperimentalPagerApi
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setupViewModel()
+        lifecycleScope.launch {
+            mainViewModel.intent.send(MainIntent.FetchHomeData)
+            mainViewModel.state.collect {
+                when (it) {
+                    is ViewState.HomePageResponses -> {
+                        data = it.data
+                        isLoaded.postValue(true)
+                    }
+                    else -> {
+                        isLoaded.postValue(false)
+                    }
+                }
+            }
+        }
         setContent {
             HoichoiHomeTheme {
+
                 Surface(
                     color = Black, modifier = Modifier
                         .fillMaxWidth()
                         .fillMaxHeight()
                 ) {
-                    HomeScreen(viewModel = viewModel)
+                    HomeScreen()
                 }
             }
         }
-        viewModel.getDataForHome()
     }
-}
 
+    private fun setupViewModel() {
+        mainViewModel = ViewModelProviders.of(
+            this, ViewModelFactory(
+                ApiHelperImpl(
+                    RetrofitBuilder.apiService
+                )
+            )
+        ).get(MainViewModel::class.java)
+    }
+
+
+}
 
 @ExperimentalPagerApi
 @ExperimentalCoilApi
 @Composable
-fun HomeScreen(viewModel: HomeViewModel) {
-    val data: HomePageResponse? = viewModel.getHomeData.observeAsState().value?.data
-    LazyColumn {
-        itemsIndexed(items = data?.modules ?: arrayListOf()) { index, column ->
-            if (index == 0) {
-                TopImagePager(data = column)
-            } else {
-                Spacer(modifier = Modifier.padding(10.dp))
-                column.title?.let {
-                    Text(
-                        text = it,
-                        modifier = Modifier.padding(start = 15.dp, top = 10.dp, bottom = 10.dp),
-                        style = TextStyle(
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
+fun HomeScreen() {
+    val loaded = isLoaded.observeAsState().value
+    if (loaded == true) {
+        LazyColumn {
+            itemsIndexed(items = data.modules ?: arrayListOf()) { index, column ->
+                if (index == 0) {
+                    TopImagePager(data = column)
+                } else {
+                    Spacer(modifier = Modifier.padding(10.dp))
+                    column.title?.let {
+                        Text(
+                            text = it,
+                            modifier = Modifier.padding(start = 15.dp, top = 10.dp, bottom = 10.dp),
+                            style = TextStyle(
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
                         )
-                    )
-                }
-                LazyRow {
-                    itemsIndexed(column.contentData ?: arrayListOf()) { index, item ->
-                        Column {
-                            item.gist?.posterImageUrl?.let {
-                                CoilImage(url = it.toString(), width = 120, height = 160)
+                    }
+                    LazyRow {
+                        itemsIndexed(column.contentData ?: arrayListOf()) { _, item ->
+                            Column {
+                                item.gist?.posterImageUrl?.let {
+                                    CoilImage(url = it.toString(), width = 120, height = 160)
+                                }
+                                Text(
+                                    text = item.gist?.title ?: "",
+                                    style = TextStyle(
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Light
+                                    ),
+                                    modifier = Modifier.width(100.dp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
-                            Text(text = item.gist?.title ?: "", style = TextStyle(color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Light), modifier = Modifier.width(100.dp),  maxLines = 1,
-                                overflow = TextOverflow.Ellipsis)
                         }
-
                     }
                 }
             }
         }
+        Spacer(modifier = Modifier.padding(10.dp))
+    } else {
+
+        Box(
+            modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
+        }
+
+
     }
-    Spacer(modifier = Modifier.padding(10.dp))
+
+
 }
 
 @ExperimentalPagerApi
@@ -239,7 +297,8 @@ fun CoilImage(url: String, width: Int, height: Int) {
                 .clip(
                     RoundedCornerShape(10.dp)
                 )
-                .padding(2.dp).fillMaxSize(), contentScale = ContentScale.Crop
+                .padding(2.dp)
+                .fillMaxSize(), contentScale = ContentScale.Crop
         )
         if (painter.state is ImagePainter.State.Loading) {
             CircularProgressIndicator()
